@@ -133,27 +133,17 @@ def build_manifest(output_dir, tokenizer, data_root=None):
                 samples.append(item)
     manifest = {"schema_version": 1, "seed": 2026,
                 "data_root": str(data_root) if data_root else None,
-                "mapping_sha256": file_hash(data_root / "mapping_file.json") if data_root else None,
                 "samples": samples, "exclusions": exclusions,
                 "test_order": "round-robin: order 0/1/2, category 1/5/6/7",
                 "protocol": "replacement-only; no LocalBlend; masks evaluation-only"}
-    from scripts.pie_dataset import audit_split_duplicates
-    save_json(folder / "split_duplicate_audit.json", audit_split_duplicates(manifest))
-    verify_manifest(manifest)
     save_json(destination, manifest)
     return manifest
 
 
 def verify_manifest(manifest):
-    if manifest.get("mapping_sha256") and file_hash(Path(manifest["data_root"]) / "mapping_file.json") != manifest["mapping_sha256"]:
-        raise ValueError("PIE annotations changed after selection; use a new experiment directory.")
     for sample in manifest["samples"]:
         if sample["kind"] == "real" and file_hash(sample["case"]["source_image"]) != sample["image_sha256"]:
             raise ValueError(f"Source image changed after selection: {sample['id']}")
-    from scripts.pie_dataset import audit_split_duplicates
-    duplicates = audit_split_duplicates(manifest)
-    if duplicates["dev_test_overlap"]:
-        raise ValueError(f"PIE dev/test image leakage; no automatic resampling: {duplicates['dev_test_overlap']}")
 
 
 def load_official():

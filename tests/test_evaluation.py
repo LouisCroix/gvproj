@@ -85,7 +85,7 @@ def test_manifest_deterministic_filters_and_freezes(tmp_path):
     for cat in ev.CATEGORIES:
         for i in range(5):
             name = f"{cat}_{i}.png"
-            Image.new("RGB", (512, 512), (20 * i, int(cat) * 20, 80)).save(images / name)
+            Image.new("RGB", (512, 512), (20 * i, 70, 80)).save(images / name)
             mapping[f"{cat}_{i}"] = dict(editing_type_id=cat, image_path=name,
                 original_prompt="a red car", editing_prompt="a [blue] car", mask=[1024, 1000])
     mapping["invalid"] = dict(editing_type_id="1", image_path="1_0.png", original_prompt="a car",

@@ -130,8 +130,7 @@ cells = [
     生成图实验和加入真实数据后的完整实验也应使用不同目录。
     """),
     code("""
-    # 先运行下面的 3b；关闭真实图时仍可独立运行生成图。
-    DATA_ROOT = str(PIE_DATA_ROOT) if globals().get("PIE_DATA_ROOT") else None
+    DATA_ROOT = None
     # DATA_ROOT = "/content/PIE-Bench"  # 通过扩展上传并解压后的远端目录
     # DATA_ROOT = "/content/drive/MyDrive/PIE-Bench"  # 已挂载 Drive
     if DATA_ROOT is not None:
@@ -273,37 +272,6 @@ cells = [
     print("从 VS Code 的 Colab Contents 获取上述ZIP，或保留在已挂载Drive。保存notebook本身不会下载结果文件。")
     """),
 ]
-
-data_index = next(i for i, cell in enumerate(cells) if cell.cell_type == "markdown" and cell.source.startswith("## 4."))
-cells[data_index:data_index] = [md("""
-## 3b. PIE-Bench 获取与重复性检查（不计入 GPU 实验预算）
-
-官方需要先通过 https://forms.gle/hVMkTABb4uvZVjme9 获取下载地址；程序不自动提交申请。
-将 `USE_PIE_BENCH=True`，填写授权下载链接或 Drive 中已有 ZIP 路径。
-支持 HTTPS ZIP 和 Google Drive 文件分享链接，不支持文件夹链接；有权限/配额问题时请手动下载到 Drive。
-数据已存在时复用并重新检查，不重复下载；Google Drive 的部分下载可尝试续传，普通 HTTPS 中断后重新下载。
-输出 dataset_audit.json：文件哈希、损坏/缺失文件、解码像素完全相同的图像、重复编辑任务。
-重复源图可能对应不同任务，因此只报告不删图；抽样后检查开发/测试图像重叠，若存在则停止，不按结果换图。
-这不是近似图像检索，也不是重新跑两次 GPU 实验的数值复现测试。
-启用真实图时第四节自动使用独立的 pie_small_vscode_v1 目录，不复用生成图实验目录。
-"""), code("""
-from scripts.pie_dataset import prepare_pie_dataset
-USE_PIE_BENCH = False
-PIE_DOWNLOAD_URL = None  # 官方申请后获得的 HTTPS ZIP / Google Drive 文件链接
-PIE_ARCHIVE_PATH = "/content/drive/MyDrive/PIE-Bench.zip"
-PIE_DESTINATION = "/content/drive/MyDrive/PIE-Bench"
-PIE_EXPECTED_SHA256 = None  # 若提供方给出校验值，可填写；本地生成哈希不代表官方认证
-PIE_DATA_ROOT = None
-if USE_PIE_BENCH:
-    if not Path("/content/drive/MyDrive").is_dir():
-        raise RuntimeError("请先挂载 Google Drive。")
-    PIE_DATA_ROOT = prepare_pie_dataset(PIE_DESTINATION, PIE_ARCHIVE_PATH,
-                                       PIE_DOWNLOAD_URL, PIE_EXPECTED_SHA256)
-    audit = json.loads((PIE_DATA_ROOT / "dataset_audit.json").read_text())
-    print(json.dumps({k: v for k, v in audit.items() if k != "files"}, ensure_ascii=False, indent=2))
-else:
-    print("PIE-Bench 未启用；第四节继续运行生成图。")
-""")]
 
 for i, cell in enumerate(cells):
     cell["id"] = f"p2p-cell-{i:02d}"

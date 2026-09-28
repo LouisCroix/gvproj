@@ -91,26 +91,7 @@ Drive 空间需充足，许多小文件的读取可能更慢；不能把整个�
 
 生成图和真实图应使用不同结果目录：第一次使用 `DATA_ROOT=None` 创建的 manifest 不会在以后被悄悄改成真实图实验。
 
-## PIE-Bench 自动获取与重复性检查
-
-Notebook 新增 **3b**：先通过[官方申请入口](https://forms.gle/hVMkTABb4uvZVjme9)获取下载链接，再设置
-`USE_PIE_BENCH=True`。可填写 `PIE_DOWNLOAD_URL`（HTTPS ZIP / Google Drive 文件链接），
-或将已有 ZIP 放到 `PIE_ARCHIVE_PATH`（默认 `/content/drive/MyDrive/PIE-Bench.zip`）。
-默认数据目录为 `/content/drive/MyDrive/PIE-Bench`。程序自动识别 ZIP 内的外层目录；已有完整数据时只检查，不重复下载。
-Google Drive 下载使用 `gdown==5.2.0`；如遇权限或配额限制，使用官方手动下载后上传 ZIP，不自动更换数据源。
-不支持 RAR、Google Drive 文件夹分享链接或申请表本身作为下载地址。
-
-`dataset_audit.json` 记录所有图像哈希、缺失/损坏文件、相同 RGB 像素的图像和相同编辑任务。
-相同图像可能用于不同编辑任务，因此报告重复项但不删除原始数据。
-`split_duplicate_audit.json` 检查选定样本的重复图像及开发/测试重叠，重叠时停止且不自动重新抽样。
-抽样保持 seed=2026；新 manifest 固定 annotation 文件哈希，续跑时检查标注和选定图像是否变化。
-这提供数据与划分的可重复性检查，不等于两次 GPU 推理逐像素一致性验证，也不检测近似/裁剪重复图。
-
-启用真实数据后使用独立的 `pie_small_vscode_v1` 输出目录。已有同名旧实验时手动选择新目录；
-本次程序更新后不要混用旧代码的结果缓存。更新 Drive ZIP 后重启 kernel 并重跑第一节；第二节补装新增 gdown。
-本地测试使用微型构造数据验证下载/解压后的流程；实际官方数据下载仍需有效授权链接。
-
-## 本地 gvproj（环境）
+## 本地 gvproj
 
 本地只做 CPU 逻辑测试；实际 512×512 推理由 Colab T4 完成。
 

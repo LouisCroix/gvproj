@@ -66,7 +66,7 @@ def test_full_workflow_resume_and_repair(tmp_path, monkeypatch, use_real):
         for cat in ev.CATEGORIES:
             for i in range(4):
                 name = f"{cat}_{i}.png"
-                Image.new("RGB", (512, 512), (int(cat) * 20, i * 30, 128)).save(images / name)
+                Image.new("RGB", (512, 512), "gray").save(images / name)
                 mapping[name] = dict(editing_type_id=cat, image_path=name, original_prompt="a red car",
                                      editing_prompt="a blue car", mask=[1024, 1000])
         ap.save_json(data_root / "mapping_file.json", mapping)
