@@ -1,0 +1,41 @@
+{
+  "device": "cpu",
+  "pnp_commit": "07f97f448150e2ca220bebd54c8f687c5c50c67a",
+  "checks": {
+    "psnr_bg": {
+      "adapter": 45.51161575317383,
+      "official": 45.51161575317383,
+      "passed": true
+    },
+    "mse_bg": {
+      "adapter": 2.8108552214689553e-05,
+      "official": 2.8108552214689553e-05,
+      "passed": true
+    },
+    "ssim_bg": {
+      "adapter": 0.9996801018714905,
+      "official": 0.9996801018714905,
+      "passed": true
+    },
+    "clip_whole": {
+      "adapter": 20.875783920288086,
+      "official": 20.875783920288086,
+      "passed": true
+    },
+    "clip_edit": {
+      "adapter": 22.236957550048828,
+      "official": 22.236957550048828,
+      "passed": true
+    },
+    "lpips_bg": {
+      "adapter": 0.0002394583134446293,
+      "official": 0.0002394583134446293,
+      "passed": true
+    },
+    "structure_distance": {
+      "adapter": 0.03315393999218941,
+      "official": 0.03315393999218941,
+      "passed": true
+    }
+  }
+}
