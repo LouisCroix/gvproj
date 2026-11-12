@@ -46,7 +46,15 @@ def save_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(path.suffix + ".tmp")
     temp.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-    temp.replace(path)
+    for attempt in range(6):
+        try:
+            temp.replace(path)
+            break
+        except PermissionError:
+            # Windows readers/indexers can briefly hold the destination open.
+            if attempt == 5:
+                raise
+            time.sleep(.05 * 2 ** attempt)
 
 
 def environment_snapshot():

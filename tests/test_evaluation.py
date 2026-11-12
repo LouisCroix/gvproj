@@ -108,5 +108,74 @@ def test_budget_resume_charges_interrupted_operation(tmp_path):
                                            "in_progress": {"name": "edit", "estimate": 35}})
     budget = ev.Budget(tmp_path, limit=100, reserve=20)
     assert budget.spent == 47
-    assert not budget.can_edit(30)
+    assert budget.can_edit(30)  # historical work does not consume this session's allowance
+    assert not budget.can_edit(70)
     assert budget.can_edit(10)
+
+
+def test_all_selection_prefixes_categories_and_quotas(tmp_path):
+    from transformers import CLIPTokenizer
+    from test_workflow import make_dataset
+    tokenizer = CLIPTokenizer.from_pretrained(ap.ROOT / "tests/fixtures/tokenizer", local_files_only=True)
+    data = make_dataset(tmp_path, per_category=6)
+    def prepare(name, **kw):
+        return ev.prepare_dataset(data, tmp_path / name, ev.DatasetConfig(**kw), tokenizer)
+    a = prepare("small", categories=("1",), test_per_category=2)
+    b = prepare("larger", categories=("1", "5"), test_per_category={"1": 4, "5": 2})
+    c = prepare("all", categories=("1",), sampling="all", test_per_category=None)
+    get = lambda manifest, split: [s["id"] for s in manifest["samples"] if s["split"] == split and s["category"] == "1"]
+    assert get(a, "dev") == get(b, "dev") == get(c, "dev")
+    assert get(a, "test") == get(b, "test")[:2] == get(c, "test")[:2]
+    assert len(get(c, "test")) == 5
+    assert not set(get(c, "dev")) & set(get(c, "test"))
+    with pytest.raises(ValueError, match="eligible=6"):
+        prepare("too_many", categories=("1",), test_per_category=6)
+    with pytest.raises(ValueError, match="frozen"):
+        ev.prepare_dataset(data, tmp_path / "small", ev.DatasetConfig(categories=("1",), test_per_category=3), tokenizer)
+    all_cats = prepare("all_categories", categories="all", sampling="all", test_per_category=None)
+    assert len(all_cats["category_counts"]) == 10
+    assert sum(x["status"] == "skipped_no_eligible_samples" for x in all_cats["category_counts"]) == 6
+    mapping = data / "mapping_file.json"
+    mapping.write_text(mapping.read_text() + "\n")
+    with pytest.raises(ValueError, match="Annotations changed"):
+        ev.verify_manifest(c)
+
+
+def test_single_eligible_category_can_use_other_categories_development(tmp_path):
+    from transformers import CLIPTokenizer
+    from test_workflow import make_dataset
+    tokenizer = CLIPTokenizer.from_pretrained(ap.ROOT / "tests/fixtures/tokenizer", local_files_only=True)
+    data = make_dataset(tmp_path, per_category=2, categories=("1", "9"))
+    mapping = ev.read_json(data / "mapping_file.json")
+    del mapping["9_1.png"]
+    ap.save_json(data / "mapping_file.json", mapping)
+    dataset = ev.DatasetConfig(categories=("1", "9"), sampling="all", test_per_category=None,
+                               dev_per_category={"1": 1, "9": 0})
+    manifest = ev.prepare_dataset(data, tmp_path / "selection", dataset, tokenizer)
+    assert {s["category"] for s in manifest["samples"] if s["split"] == "test"} == {"1", "9"}
+    with pytest.raises(ValueError, match="At least one development"):
+        ev.prepare_dataset(data, tmp_path / "no_dev", ev.DatasetConfig(categories=("1",),
+                           dev_per_category=0, sampling="all", test_per_category=None), tokenizer)
+
+
+def test_missing_dataset_and_invalid_configs(tmp_path):
+    with pytest.raises(ValueError, match="PIE-Bench is required"):
+        ev.prepare_dataset(None, tmp_path)
+    with pytest.raises(ValueError):
+        ev.DatasetConfig(sampling="all")
+    with pytest.raises(ValueError):
+        ev.DatasetConfig(test_per_category=0)
+    with pytest.raises(ValueError):
+        ev.DatasetConfig(categories=("1", "5"), test_per_category={"1": 2})
+
+
+def test_notebook_syntax_and_runtime_source():
+    import nbformat
+    from scripts import runtime_paths
+    notebook = nbformat.read(ap.ROOT / "adaptive_p2p_colab.ipynb", as_version=4)
+    nbformat.validate(notebook)
+    bootstrap = Path(runtime_paths.__file__).read_text(encoding="utf-8")
+    assert any(bootstrap in c.source for c in notebook.cells if c.cell_type == "code")
+    for i, cell in enumerate(notebook.cells):
+        if cell.cell_type == "code":
+            compile(cell.source, f"cell_{i}", "exec")

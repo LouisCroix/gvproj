@@ -362,3 +362,10 @@ token_i\leftrightarrow token_j
 attention 只是其中一个 control signal。
 
 这也是为什么 InfEdit、PnP Inversion、DiffEditor 等方法虽然不再严格是“P2P”，但从思想上确实是 P2P 自然发展的结果。:chatgpt-content-reference{index="20"}
+
+
+
+
+
+真正的下一步：
+问图片筛选有没有意义。

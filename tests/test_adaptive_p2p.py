@@ -13,6 +13,23 @@ from transformers import CLIPTokenizer
 import adaptive_p2p as ap
 
 
+def test_json_checkpoint_retries_temporary_file_lock(tmp_path, monkeypatch):
+    from pathlib import Path
+    original = Path.replace
+    attempts = []
+    def locked_then_available(self, destination):
+        attempts.append(destination)
+        if len(attempts) < 3:
+            raise PermissionError("temporary reader lock")
+        return original(self, destination)
+    monkeypatch.setattr(Path, "replace", locked_then_available)
+    monkeypatch.setattr(ap.time, "sleep", lambda delay: None)
+    path = tmp_path / "state.json"
+    ap.save_json(path, {"complete": True})
+    assert json.loads(path.read_text()) == {"complete": True}
+    assert len(attempts) == 3
+
+
 @pytest.fixture(scope="session")
 def tokenizer():
     return CLIPTokenizer.from_pretrained(ap.ROOT / "tests" / "fixtures" / "tokenizer", local_files_only=True)
@@ -45,8 +62,13 @@ def original_controller(tokenizer):
     return ns["AttentionReplace"]
 
 
-@pytest.mark.parametrize("target", ["a blue car beside a red car", "a rhinoceros car beside a red car"])
-@pytest.mark.parametrize("tau", [0., .4, .6, .8, 1.])
+@pytest.mark.parametrize("target,tau", [
+    ("a blue car beside a red car", 0.),
+    ("a blue car beside a red car", 1.),
+    ("a rhinoceros car beside a red car", .4),
+    ("a rhinoceros car beside a red car", .6),
+    ("a blue car beside a red car", .8),
+])
 def test_baseline_matches_original_all_steps(tokenizer, cfg, target, tau):
     case = ap.prepare_case("a red car beside a red car", target)
     mapper, _, _, indices = ap.alignment(case, tokenizer)

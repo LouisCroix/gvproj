@@ -1,3 +1,0 @@
-.................................                                        [100%]
-- generated xml file: C:\Users\yang1\Desktop\Generative Vision\project\validation\pytest.xml -
-33 passed, 18 warnings in 82.82s (0:01:22)

@@ -1,5 +1,4 @@
 """Offline workflow integration. Deterministic fake images are not research results."""
-import json
 from dataclasses import asdict
 from pathlib import Path
 
@@ -13,8 +12,8 @@ import adaptive_p2p as ap
 import evaluate_adaptive_p2p as ev
 
 
-@pytest.mark.parametrize("use_real", [False, True])
-def test_full_workflow_resume_and_repair(tmp_path, monkeypatch, use_real):
+@pytest.fixture
+def fake_runtime(monkeypatch):
     tokenizer = CLIPTokenizer.from_pretrained(ap.ROOT / "tests" / "fixtures" / "tokenizer", local_files_only=True)
     class FakeEditor:
         revision = "a" * 40
@@ -28,9 +27,9 @@ def test_full_workflow_resume_and_repair(tmp_path, monkeypatch, use_real):
         rid = ap.digest([asdict(case), method, asdict(config)])
         folder = Path(config.output_dir) / "runs" / rid
         folder.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (512, 512), (100, 120, 140)).save(folder / "source.png")
-        Image.new("RGB", (512, 512), (110 + ap.METHODS.index(method), 120, 140)).save(folder / "edited.png")
-        Image.new("RGB", (512, 512), (100, 120, 140)).save(folder / "source_branch.png")
+        Image.new("RGB", (32, 32), (100, 120, 140)).save(folder / "source.png")
+        Image.new("RGB", (32, 32), (110 + ap.METHODS.index(method), 120, 140)).save(folder / "edited.png")
+        Image.new("RGB", (32, 32), (100, 120, 140)).save(folder / "source_branch.png")
         ap.save_json(folder / "weights.json", [{"u": 0., "alpha_edited": 1., "attention_js": .1},
                                               {"u": 1., "alpha_edited": 0., "attention_js": .2}])
         return {"run_id": rid, "method": method, "case": asdict(case), "config": asdict(config),
@@ -56,35 +55,62 @@ def test_full_workflow_resume_and_repair(tmp_path, monkeypatch, use_real):
     monkeypatch.setattr(ev, "edit_case", fake_edit)
     monkeypatch.setattr(ev, "release_editor", lambda: None)
     monkeypatch.setattr(ev, "OfficialMetricAdapter", FakeMetrics)
+    # Mock models own no large tensors; production model cleanup is unnecessary here.
+    monkeypatch.setattr(ev.gc, "collect", lambda: 0)
+    bootstrap = ev.paired_bootstrap
+    # Full 2,000-draw bootstrap belongs to experiments, not repeated I/O tests.
+    monkeypatch.setattr(ev, "paired_bootstrap", lambda *args, **kw: bootstrap(*args, **{**kw, "iterations": 32}))
+    prepare = ev.prepare_dataset
+    monkeypatch.setattr(ev, "prepare_dataset", lambda *args, **kw: prepare(*args, **{**kw, "tokenizer": tokenizer}))
+    return calls
+
+
+def make_dataset(folder, per_category=4, categories=ev.CATEGORIES):
+    data_root = folder / "pie"
+    images = data_root / "annotation_images"
+    images.mkdir(parents=True)
+    mapping = {}
+    for cat in categories:
+        for i in range(per_category):
+            name = f"{cat}_{i}.png"
+            Image.new("RGB", (512, 512), "gray").save(images / name)
+            mapping[name] = dict(editing_type_id=cat, image_path=name, original_prompt="a red car",
+                                 editing_prompt="a blue car", mask=[1024, 1000])
+    ap.save_json(data_root / "mapping_file.json", mapping)
+    return data_root
+
+
+def test_full_workflow_resume_and_repair(tmp_path, fake_runtime):
+    calls = fake_runtime
     config = ap.EditConfig(output_dir=str(tmp_path), device="cpu", dtype="float32")
-    data_root = None
-    if use_real:
-        data_root = tmp_path / "pie"
-        images = data_root / "annotation_images"
-        images.mkdir(parents=True)
-        mapping = {}
-        for cat in ev.CATEGORIES:
-            for i in range(4):
-                name = f"{cat}_{i}.png"
-                Image.new("RGB", (512, 512), "gray").save(images / name)
-                mapping[name] = dict(editing_type_id=cat, image_path=name, original_prompt="a red car",
-                                     editing_prompt="a blue car", mask=[1024, 1000])
-        ap.save_json(data_root / "mapping_file.json", mapping)
-    ev.run_experiment(config, data_root)
-    expected = 68 if use_real else 12
+    data_root = make_dataset(tmp_path, per_category=2, categories=("1",))
+    dataset = ev.DatasetConfig(categories=("1",), test_per_category=1)
+    ev.run_experiment(config, data_root, limit_seconds=1, dataset_config=dataset)
+    assert not calls
+    assert ev.read_json(tmp_path / "status.json")["status"] == "paused_budget"
+    frozen = (tmp_path / "manifest.json").read_bytes()
+    selection = (tmp_path / "test_selection.json").read_bytes()
+    ev.run_experiment(config, data_root, dataset_config=dataset)
+    assert (tmp_path / "manifest.json").read_bytes() == frozen
+    assert (tmp_path / "test_selection.json").read_bytes() == selection
+    expected = 8
     assert len(calls) == expected
     assert (tmp_path / "summary.csv").exists()
-    assert len(list((tmp_path / "qualitative").glob("*/comparison.png"))) == (16 if use_real else 4)
-    assert len(ev.read_json(tmp_path / "test_selection.json")["sample_ids"]) == (12 if use_real else 0)
-    assert ev.read_json(tmp_path / "selected_tau.json")["tau"] == (.8 if use_real else .6)
+    assert len(list((tmp_path / "qualitative").glob("*/comparison.png"))) == 1
+    assert len(ev.read_json(tmp_path / "test_selection.json")["sample_ids"]) == 1
+    assert ev.read_json(tmp_path / "selected_tau.json")["tau"] == .8
+    assert ev.read_json(tmp_path / "status.json")["status"] == "complete"
     score = tmp_path / "blind_review" / "scores.csv"
-    score.write_text(score.read_text() + "# human input\n")
-    ev.run_experiment(config, data_root)
+    import pandas as pd
+    scores = pd.read_csv(score, dtype=str, keep_default_na=False)
+    scores.loc[0, "notes"] = "human input"
+    scores.to_csv(score, index=False)
+    ev.run_experiment(config, data_root, dataset_config=dataset)
     assert len(calls) == expected
-    assert "# human input" in score.read_text()
-    record = next(r for r in ev.read_json(tmp_path / "registry.json")["records"] if r["split"] == "generated")
+    assert "human input" in score.read_text()
+    record = next(r for r in ev.read_json(tmp_path / "registry.json")["records"] if r["split"] == "test")
     Path(record["result"]["edited_path"]).write_bytes(b"corrupt")
-    ev.run_experiment(config, data_root)
+    ev.run_experiment(config, data_root, dataset_config=dataset)
     assert len(calls) == expected + 1
     assert len(ev.read_json(tmp_path / "registry.json")["records"]) == expected
 
@@ -110,3 +136,50 @@ def test_initial_cache_key_excludes_edit_settings_but_checks_image(tmp_path):
     (cache / "initial.pt").write_bytes(b"corrupt")
     assert not editor.initial_is_cached(case, config)
     assert identity != editor.base_identity(case, replace(config, steps=50))
+
+
+@pytest.mark.parametrize("stage", ["inversion", "editing", "metrics"])
+def test_interruption_then_resume(tmp_path, fake_runtime, monkeypatch, stage):
+    data = make_dataset(tmp_path, per_category=2, categories=("1",))
+    config = ap.EditConfig(output_dir=str(tmp_path), device="cpu", dtype="float32")
+    dataset = ev.DatasetConfig(categories=("1",), test_per_category=1)
+    name = {"inversion": "invert_case", "editing": "edit_case", "metrics": "OfficialMetricAdapter"}[stage]
+    original = getattr(ev, name)
+    count = 0
+    def interrupted(*args, **kwargs):
+        nonlocal count
+        count += 1
+        if count == 2:
+            raise RuntimeError("simulated interruption")
+        return original(*args, **kwargs)
+    monkeypatch.setattr(ev, name, interrupted)
+    with pytest.raises(RuntimeError, match="simulated"):
+        ev.run_experiment(config, data, dataset_config=dataset)
+    assert ev.read_json(tmp_path / "status.json")["status"] == "failed"
+    saved = list(ev.read_json(tmp_path / "registry.json")["records"])
+    monkeypatch.setattr(ev, name, original)
+    ev.run_experiment(config, data, dataset_config=dataset)
+    records = ev.read_json(tmp_path / "registry.json")["records"]
+    assert len(records) == 8  # 3 baseline dev + 2 soft dev + 3 test
+    assert all(r in records for r in saved)
+    assert ev.read_json(tmp_path / "status.json")["status"] == "complete"
+
+
+def test_workflow_crosses_block_boundary(tmp_path, fake_runtime, monkeypatch):
+    data = make_dataset(tmp_path, per_category=14, categories=("1",))
+    config = ap.EditConfig(output_dir=str(tmp_path), device="cpu", dtype="float32")
+    dataset = ev.DatasetConfig(categories=("1",), sampling="all", test_per_category=None)
+    # 13 tests exercise the 12+1 boundary; the smaller workflow tests rendering.
+    monkeypatch.setattr(ev, "export_qualitative", lambda *args: None)
+    sizes = []
+    run = ev.run_cases
+    def recorded(samples, *args):
+        sizes.append(len(samples))
+        return run(samples, *args)
+    monkeypatch.setattr(ev, "run_cases", recorded)
+    ev.run_experiment(config, data, limit_seconds=36000, dataset_config=dataset)
+    assert sizes[-2:] == [12, 1]
+    assert len(fake_runtime) == 5 + 13 * 3
+    coverage = ev.read_json(tmp_path / "coverage.json")[0]
+    assert coverage["planned_samples"] == coverage["metrics_complete_samples"] == 13
+    assert not coverage["missing_ids"]
